@@ -42,10 +42,21 @@ def obter_ofertas_mercadolivre():
             preco_elem = card.select_one(".andes-money-amount__fraction, .promotion-item__price")
             preco = f"R$ {preco_elem.text.strip()}" if preco_elem else "Confira no site"
 
+            # === CAPTURA AVANÇADA DE IMAGEM ===
             img_elem = card.select_one("img")
             foto_url = None
+
             if img_elem:
-                foto_url = img_elem.get("data-src") or img_elem.get("src")
+                atributos_imagem = [
+                    img_elem.get("data-src"),
+                    img_elem.get("src"),
+                    img_elem.get("data-srcset")
+                ]
+                for src in atributos_imagem:
+                    if src and src.startswith("http") and not src.startswith("data:"):
+                        foto_url = src.split(" ")[0]
+                        break
+            # ==================================
 
             link_afiliado = f"{link_original}?matt_tool={TAG_AFILIADO}" if "?" not in link_original else f"{link_original}&matt_tool={TAG_AFILIADO}"
 
