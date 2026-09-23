@@ -1,3 +1,5 @@
+import time
+import os
 import requests
 from bs4 import BeautifulSoup
 
@@ -5,6 +7,21 @@ from bs4 import BeautifulSoup
 TELEGRAM_TOKEN = "8876682124:AAEml_NFulfN9kWX1pK0ZVHzai7L7i157qk"
 CHAT_ID = "-1003939333885"
 TAG_AFILIADO = "jo5395943"
+
+# Arquivo para armazenar links já enviados e evitar duplicados
+ARQUIVO_HISTORICO = "enviados.txt"
+
+def carregar_historico():
+    """Carrega o histórico de ofertas já enviadas."""
+    if os.path.exists(ARQUIVO_HISTORICO):
+        with open(ARQUIVO_HISTORICO, "r", encoding="utf-8") as f:
+            return set(line.strip() for line in f if line.strip())
+    return set()
+
+def salvar_no_historico(link):
+    """Salva um novo link no arquivo de histórico."""
+    with open(ARQUIVO_HISTORICO, "a", encoding="utf-8") as f:
+        f.write(f"{link}\n")
 
 def obter_ofertas_mercadolivre():
     print("🔍 Buscando ofertas no Mercado Livre...")
@@ -25,19 +42,28 @@ def obter_ofertas_mercadolivre():
 
     soup = BeautifulSoup(response.text, "html.parser")
     ofertas = []
+    historico = carregar_historico()
+
     cards = soup.select("li.promotion-item, .promotions_element, .poly-card, div.andes-card")
 
-    for card in cards[:5]:  # Pega as 5 primeiras ofertas
+    for card in cards:
+        if len(ofertas) >= 10:  # Pára assim que encontrar 10 ofertas novas
+            break
+
         try:
             titulo_elem = card.select_one(".promotion-item__title, .promotions_element__title, .poly-component__title, h3")
             if not titulo_elem:
                 continue
-            titulo = titulo_elem.text.strip()
+            titulo = " ".join(titulo_elem.text.split())
 
             link_elem = card.select_one("a")
             if not link_elem or "href" not in link_elem.attrs:
                 continue
-            link_original = link_elem["href"]
+            link_original = link_elem["href"].split("?")[0]  # Limpa parâmetros para comparar com histórico
+
+            # Verifica se esta oferta já foi enviada no passado
+            if link_original in historico:
+                continue
 
             preco_elem = card.select_one(".andes-money-amount__fraction, .promotion-item__price")
             preco = f"R$ {preco_elem.text.strip()}" if preco_elem else "Confira no site"
@@ -58,18 +84,19 @@ def obter_ofertas_mercadolivre():
                         break
             # ==================================
 
-            link_afiliado = f"{link_original}?matt_tool={TAG_AFILIADO}" if "?" not in link_original else f"{link_original}&matt_tool={TAG_AFILIADO}"
+            link_afiliado = f"{link_original}?matt_tool={TAG_AFILIADO}"
 
             ofertas.append({
                 "titulo": titulo,
                 "preco": preco,
                 "link": link_afiliado,
+                "link_base": link_original,
                 "foto": foto_url
             })
         except Exception:
             continue
 
-    print(f"✅ {len(ofertas)} ofertas encontradas!")
+    print(f"✅ {len(ofertas)} ofertas novas encontradas!")
     return ofertas
 
 def enviar_mensagem_telegram(produto):
@@ -93,13 +120,29 @@ def enviar_mensagem_telegram(produto):
         res = requests.post(url_api, data=payload, timeout=10)
         if res.status_code == 200:
             print(f"🚀 Enviado: {produto['titulo']}")
+            # Salva o link no histórico apenas se for enviado com sucesso
+            salvar_no_historico(produto["link_base"])
         else:
             print(f"⚠️ Erro no envio ({res.status_code}): {res.text}")
     except Exception as e:
         print(f"❌ Falha de rede: {e}")
 
+def executar_bot():
+    print("🤖 Bot de ofertas iniciado!")
+    
+    # Tempo de espera entre cada ciclo (1 hora e 30 minutos = 5400 segundos)
+    INTERVALO_SEGUNDOS = 90 * 60  
+
+    while True:
+        print("\n--- 🔄 Iniciando novo ciclo de envio ---")
+        ofertas = obter_ofertas_mercadolivre()
+        
+        for produto in ofertas:
+            enviar_mensagem_telegram(produto)
+            time.sleep(2)  # Pausa curta de 2s entre cada mensagem no Telegram para evitar spam
+
+        print(f"⏳ Aguardando 1 hora e 30 minutos até a próxima verificação...")
+        time.sleep(INTERVALO_SEGUNDOS)
+
 if __name__ == "__main__":
-    ofertas = obter_ofertas_mercadolivre()
-    for produto in ofertas:
-        enviar_mensagem_telegram(produto)
-    print("🏁 Processo finalizado.")
+    executar_bot()
