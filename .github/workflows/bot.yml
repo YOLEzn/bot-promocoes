@@ -1,28 +1,48 @@
-name: Executar Bot de Promocoes
+name: Executar Bot de Promoções
 
 on:
   schedule:
-    # Roda a cada 1 hora automaticamente
-    - cron: '0 * * * *'
-  workflow_dispatch: # Permite rodar manualmente a qualquer momento
+    # O cron não aceita "a cada 90 minutos", então uso dois horários que se alternam:
+    # 00:00, 03:00, 06:00... e 01:30, 04:30, 07:30... = uma execução a cada 1h30 (UTC)
+    - cron: "0 0,3,6,9,12,15,18,21 * * *"
+    - cron: "30 1,4,7,10,13,16,19,22 * * *"
+  workflow_dispatch:         # permite rodar na mão pelo botão "Run workflow"
+
+permissions:
+  contents: write            # precisa pra salvar o enviados.txt de volta no repo
+
+concurrency:
+  group: bot-promocoes
+  cancel-in-progress: false  # se um ciclo atrasar, o próximo espera na fila
 
 jobs:
   executar:
     runs-on: ubuntu-latest
+    timeout-minutes: 10      # trava de segurança: nunca passa disso
 
     steps:
-      - name: Baixar o codigo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configurar Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.12"
 
-      - name: Instalar bibliotecas
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4
+      - name: Instalar dependências
+        run: pip install requests beautifulsoup4
 
-      - name: Executar Script
+      - name: Rodar um ciclo do bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          EXECUTAR_UMA_VEZ: "1"
         run: python automacao_nuvem.py
+
+      - name: Salvar histórico de enviados
+        run: |
+          if [ -n "$(git status --porcelain enviados.txt)" ]; then
+            git config user.name "bot-promocoes"
+            git config user.email "bot@users.noreply.github.com"
+            git add enviados.txt
+            git commit -m "Atualiza histórico de enviados"
+            git push
+          fi
